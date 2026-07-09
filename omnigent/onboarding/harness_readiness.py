@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import sys
 from collections.abc import Callable
 
 import omnigent.onboarding.gemini_auth as _gemini_auth
@@ -42,6 +43,7 @@ from omnigent.onboarding.harness_install import (
     PI_KEY,
     QWEN_KEY,
     harness_cli_installed,
+    harness_cli_logged_in,
     required_cli_for_harness,
 )
 from omnigent.onboarding.provider_config import (
@@ -66,16 +68,32 @@ _SDK_HARNESSES: frozenset[str] = frozenset(
     {"claude-sdk", "openai-agents", "openai-agents-sdk", "antigravity"}
 )
 
+
+def _gemini_login_detected() -> bool:
+    """Return whether ``agy`` has a usable login on this machine.
+
+    File-based fast path first (Linux; older agy on macOS wrote
+    ``~/.gemini/oauth_creds.json``). agy 1.1.0 on macOS stores its OAuth token
+    in the Keychain instead of that file, so a file-only check falsely reports
+    "not logged in" for a signed-in user — fall back to the CLI's own verdict
+    (``agy models``, exit 0 only when signed in). This mirrors the Claude
+    Keychain fallback in :func:`omnigent.onboarding.ambient._claude_login_detected`.
+
+    Resolves ``gemini_login_detected`` through the module at call time so a test
+    can monkeypatch it and have the patch take effect.
+    """
+    return _gemini_auth.gemini_login_detected() or (
+        sys.platform == "darwin" and harness_cli_logged_in(GEMINI_FAMILY)
+    )
+
+
 # Families whose CLIs authenticate via file-based credentials rather than a CLI
 # login command. For these, ``harness_is_configured`` checks BOTH the binary
 # (via ``harness_cli_installed``) AND the credential (via the callable here).
 # The ``anthropic`` / ``openai`` families authenticate via subscription provider
-# config and do not appear here. The lambda resolves through the module at call
-# time so a test can monkeypatch
-# ``omnigent.onboarding.gemini_auth.gemini_login_detected`` and have the patch
-# take effect without this dict caching the old function object.
+# config and do not appear here.
 _FAMILY_CREDENTIAL_CHECK: dict[str, Callable[[], bool]] = {
-    GEMINI_FAMILY: lambda: _gemini_auth.gemini_login_detected(),
+    GEMINI_FAMILY: _gemini_login_detected,
 }
 
 # CLI-wrapping pi harnesses. Both the bare ``pi`` surface and the native

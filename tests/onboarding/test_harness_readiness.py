@@ -276,6 +276,38 @@ def test_configured_harness_map_all_true_with_clis(
     assert all(result.values())
 
 
+@pytest.mark.parametrize(
+    ("platform", "cli_logged_in", "expected"),
+    [
+        # macOS agy 1.1.0 keeps its token in the Keychain, not oauth_creds.json,
+        # so the file check fails; fall back to `agy models` (harness_cli_logged_in),
+        # else the host 412s a working install as "not configured".
+        ("darwin", True, True),
+        # Off macOS there is no Keychain fallback: the file token is authoritative,
+        # so a missing file keeps the gate closed even if the CLI probe would pass.
+        ("linux", True, False),
+        # Signed-out mac: no file credential and `agy models` reports no login.
+        ("darwin", False, False),
+    ],
+)
+def test_antigravity_native_gemini_credential_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+    platform: str,
+    cli_logged_in: bool,
+    expected: bool,
+) -> None:
+    """antigravity-native readiness falls back to the agy CLI on macOS only."""
+    import omnigent.onboarding.gemini_auth as _ga
+    import omnigent.onboarding.harness_readiness as _hr
+
+    _all_clis_installed(monkeypatch)
+    monkeypatch.setattr(_ga, "gemini_login_detected", lambda: False)
+    monkeypatch.setattr(_hr.sys, "platform", platform)
+    monkeypatch.setattr(_hr, "harness_cli_logged_in", lambda key: cli_logged_in)
+
+    assert harness_is_configured("antigravity-native") is expected
+
+
 def test_kimi_readiness_keys_off_binary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
